@@ -8,6 +8,7 @@ sealed class CalculatorAction {
     object Calculate: CalculatorAction()
     data class Operation(val operation: CalculatorOperation): CalculatorAction()
     object ToggleSign: CalculatorAction()
+    object SquareRoot: CalculatorAction()
     data class Constant(val constant: Operand.Constant): CalculatorAction()
 }
 

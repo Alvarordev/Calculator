@@ -73,7 +73,7 @@ fun Calculator(
             verticalAlignment = Alignment.CenterVertically
         ) {
             CalculatorOperationButton("√", onClick = {
-                onAction(CalculatorAction.Operation(CalculatorOperation.Root))
+                onAction(CalculatorAction.SquareRoot)
             })
             CalculatorOperationButton("π", onClick = {
                 onAction(CalculatorAction.Constant(MathConstants.PI))
@@ -140,7 +140,7 @@ fun Calculator(
                         }
 
                         is CalculatorButton.Minus -> {
-                                onAction(CalculatorAction.Operation(CalculatorOperation.Subtract))
+                            onAction(CalculatorAction.Operation(CalculatorOperation.Subtract))
                         }
 
                         is CalculatorButton.Multiply -> {

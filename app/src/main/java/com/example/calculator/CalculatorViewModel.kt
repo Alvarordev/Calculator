@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import java.util.Stack
+import kotlin.math.pow
 
 class CalculatorViewModel : ViewModel() {
     var state by mutableStateOf(CalculatorState())
@@ -20,6 +21,7 @@ class CalculatorViewModel : ViewModel() {
             is CalculatorAction.Delete -> performDeletion()
             is CalculatorAction.ToggleSign -> toggleSign()
             is CalculatorAction.Constant -> enterConstant(action.constant)
+            is CalculatorAction.SquareRoot -> enterSquareRootOperation()
         }
         updateDisplayExpression()
     }
@@ -28,7 +30,6 @@ class CalculatorViewModel : ViewModel() {
         val current = state.currentInput
         var newCurrentInput: Operand = current
 
-        // Si hay un error o el resultado no es "0", reiniciar el currentInput
         if (current is Operand.Error || state.result != "0") {
             newCurrentInput = Operand.Number(number.toString())
             state = state.copy(inputTokens = emptyList(), result = "0")
@@ -38,10 +39,12 @@ class CalculatorViewModel : ViewModel() {
             if (currentValue == "0") {
                 newCurrentInput = Operand.Number(number.toString()) // Reemplazar el "0" inicial
             } else {
-                newCurrentInput = Operand.Number(currentValue + number) // Concatenar el número al actual
+                newCurrentInput =
+                    Operand.Number(currentValue + number) // Concatenar el número al actual
             }
         } else if (current is Operand.Empty || current is Operand.Constant) {
-            newCurrentInput = Operand.Number(number.toString()) // Si es Empty o Constant, al poner un número, se convierte en Number
+            newCurrentInput =
+                Operand.Number(number.toString()) // Si es Empty o Constant, al poner un número, se convierte en Number
         }
 
         state = state.copy(currentInput = newCurrentInput)
@@ -72,9 +75,7 @@ class CalculatorViewModel : ViewModel() {
             // En este caso, no añadimos el "0" y simplemente seteamos la constante como currentInput
             state = state.copy(currentInput = constant, inputTokens = emptyList(), result = "0")
             return
-        }
-
-        else if (state.currentInput !is Operand.Empty && state.currentInput !is Operand.Error) {
+        } else if (state.currentInput !is Operand.Empty && state.currentInput !is Operand.Error) {
             if (newTokens.isEmpty() || newTokens.last() !is CalculatorOperation) {
                 // No hay tokens o el último token NO es una operación.
                 // Esto significa que la constante debe reemplazar el currentInput
@@ -90,16 +91,14 @@ class CalculatorViewModel : ViewModel() {
                 newTokens.add(constant)
                 state = state.copy(currentInput = Operand.Empty, inputTokens = newTokens)
             }
-        }
-        else if (state.currentInput is Operand.Empty) {
+        } else if (state.currentInput is Operand.Empty) {
             if (newTokens.isNotEmpty() && newTokens.last() is CalculatorOperation) {
                 newTokens.add(constant)
                 state = state.copy(currentInput = Operand.Empty, inputTokens = newTokens)
             } else {
                 state = state.copy(currentInput = constant, inputTokens = emptyList(), result = "0")
             }
-        }
-        else if (state.currentInput is Operand.Error) {
+        } else if (state.currentInput is Operand.Error) {
             state = state.copy(currentInput = constant, inputTokens = emptyList(), result = "0")
         }
     }
@@ -122,6 +121,18 @@ class CalculatorViewModel : ViewModel() {
         state = state.copy(
             inputTokens = newTokens,
             currentInput = Operand.Empty
+        )
+    }
+
+    private fun enterSquareRootOperation() {
+        val newTokens = mutableListOf<Any>()
+
+        newTokens.add(CalculatorOperation.SquareRoot)
+
+        state = state.copy(
+            inputTokens = newTokens,
+            currentInput = Operand.Empty,
+            result = "0"
         )
     }
 
@@ -156,12 +167,15 @@ class CalculatorViewModel : ViewModel() {
                 is Operand -> { // Es un número o una constante
                     outputQueue.add(token)
                 }
+
                 is CalculatorOperation -> { // Es un operador
-                    while (operatorStack.isNotEmpty() && operatorStack.peek() is CalculatorOperation &&
-                        ((token.isLeftAssociative && token.precedence <= operatorStack.peek().precedence) ||
-                                (!token.isLeftAssociative && token.precedence < operatorStack.peek().precedence))
-                    ) {
-                        outputQueue.add(operatorStack.pop())
+                    while (operatorStack.isNotEmpty() && operatorStack.peek() is CalculatorOperation) {
+                        val topOp = operatorStack.peek()
+                        if (topOp.precedence > token.precedence || (topOp.precedence == token.precedence && token.isLeftAssociative)) {
+                            outputQueue.add(operatorStack.pop())
+                        } else {
+                            break
+                        }
                     }
                     operatorStack.push(token)
                 }
@@ -187,28 +201,54 @@ class CalculatorViewModel : ViewModel() {
                     }
                     operandStack.push(value)
                 }
+
                 is CalculatorOperation -> {
-                    if (operandStack.size < 2) { // La mayoría son binarios
-                        throw IllegalArgumentException("Not enough operands for operation: ${token.symbol}")
-                    }
-                    val operand2 = operandStack.pop()
-                    val operand1 = operandStack.pop()
-                    val result = when (token) {
-                        is CalculatorOperation.Add -> operand1 + operand2
-                        is CalculatorOperation.Subtract -> operand1 - operand2
-                        is CalculatorOperation.Multiply -> operand1 * operand2
-                        is CalculatorOperation.Divide -> {
-                            if (operand2 == 0.0) {
-                                state = state.copy(result = "Error") // Actualiza el estado de error
-                                throw ArithmeticException("Division by zero")
-                            }
-                            operand1 / operand2
+                    // Manejo de operadores unarios
+                    if (token == CalculatorOperation.SquareRoot) {
+                        if (operandStack.isEmpty()) {
+                            throw IllegalArgumentException("Not enough operands for unary operation: ${token.symbol}")
                         }
-                        is CalculatorOperation.Mod -> operand1 % operand2
-                        is CalculatorOperation.Power -> Math.pow(operand1, operand2)
-                        is CalculatorOperation.Root -> Math.pow(operand1, 1.0 / operand2) // Asumiendo root(x, y) = x^(1/y)
+                        val operand = operandStack.pop() // Solo saca UN operando
+                        if (operand < 0) {
+                            state = state.copy(result = "Error") // Actualiza el estado de error
+                            throw ArithmeticException("Square root of negative number")
+                        }
+                        operandStack.push(kotlin.math.sqrt(operand))
+                    } else {
+                        if (operandStack.size < 2) {
+                            throw IllegalArgumentException("Not enough operands for binary operation: ${token.symbol}")
+                        }
+                        val operand2 = operandStack.pop()
+                        val operand1 = operandStack.pop()
+                        val result = when (token) {
+                            is CalculatorOperation.Add -> operand1 + operand2
+                            is CalculatorOperation.Subtract -> operand1 - operand2
+                            is CalculatorOperation.Multiply -> operand1 * operand2
+                            is CalculatorOperation.Divide -> {
+                                if (operand2 == 0.0) {
+                                    state = state.copy(result = "Error")
+                                    throw ArithmeticException("Division by zero")
+                                }
+                                operand1 / operand2
+                            }
+
+                            is CalculatorOperation.Mod -> operand1 % operand2
+                            is CalculatorOperation.Power -> operand1.pow(operand2)
+                            is CalculatorOperation.SquareRoot -> {
+                                if (operand2 == 0.0) {
+                                    state = state.copy(result = "Error")
+                                    throw ArithmeticException("Root index cannot be zero")
+                                }
+                                if (operand1 < 0 && operand2 % 2 == 0.0) {
+                                    state = state.copy(result = "Error")
+                                    throw ArithmeticException("Even root of a negative number")
+                                }
+                                operand1.pow(1.0 / operand2)
+                            }
+
+                        }
+                        operandStack.push(result)
                     }
-                    operandStack.push(result)
                 }
             }
         }
@@ -239,7 +279,11 @@ class CalculatorViewModel : ViewModel() {
     private fun performDeletion() {
         if (state.currentInput !is Operand.Empty && state.currentInput !is Operand.Error) {
             if (state.currentInput is Operand.Number && (state.currentInput as Operand.Number).value.length > 1) {
-                state = state.copy(currentInput = Operand.Number((state.currentInput as Operand.Number).value.dropLast(1)))
+                state = state.copy(
+                    currentInput = Operand.Number(
+                        (state.currentInput as Operand.Number).value.dropLast(1)
+                    )
+                )
             } else {
                 state = state.copy(currentInput = Operand.Empty)
             }
@@ -260,16 +304,21 @@ class CalculatorViewModel : ViewModel() {
     private fun toggleSign() {
         when (val current = state.currentInput) {
             is Operand.Number -> {
-                val newValue = if (current.value.startsWith("-")) current.value.removePrefix("-") else "-" + current.value
+                val newValue =
+                    if (current.value.startsWith("-")) current.value.removePrefix("-") else "-" + current.value
                 state = state.copy(currentInput = Operand.Number(newValue))
             }
+
             is Operand.Constant -> {
                 val negativeValue = -current.value
-                state = state.copy(currentInput = Operand.Number(formatResult(negativeValue))) // Conviértelo en un número
+                state =
+                    state.copy(currentInput = Operand.Number(formatResult(negativeValue))) // Conviértelo en un número
             }
+
             Operand.Empty -> {
                 state = state.copy(currentInput = Operand.Number("-"))
             }
+
             Operand.Error -> {
                 state = state.copy(currentInput = Operand.Number("-"))
             }
