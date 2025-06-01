@@ -1,4 +1,4 @@
-package com.example.calculator
+package com.example.calculator.calculator.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -23,11 +23,18 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.calculator.calculator.data.CalculatorAction
+import com.example.calculator.calculator.data.CalculatorButton
+import com.example.calculator.calculator.ui.components.CalculatorButton
+import com.example.calculator.calculator.data.CalculatorOperation
+import com.example.calculator.calculator.ui.components.CalculatorOperationButton
+import com.example.calculator.calculator.data.CalculatorState
+import com.example.calculator.calculator.data.MathConstants
 import com.example.calculator.ui.theme.BackgroundBlue
 import com.example.calculator.ui.theme.SpecialButtonWhite
 
 @Composable
-fun Calculator(
+fun CalculatorScreen(
     state: CalculatorState, onAction: (CalculatorAction) -> Unit
 ) {
     val currentExpression = state.displayExpression

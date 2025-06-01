@@ -1,4 +1,4 @@
-package com.example.calculator
+package com.example.calculator.calculator.data
 
 sealed class Operand {
     data class Number(val value: String) : Operand()

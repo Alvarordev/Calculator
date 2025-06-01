@@ -1,15 +1,26 @@
-package com.example.calculator
+package com.example.calculator.calculator.ui
 
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
+import com.example.calculator.calculator.data.CalculatorAction
+import com.example.calculator.calculator.data.CalculatorOperation
+import com.example.calculator.calculator.data.CalculatorState
+import com.example.calculator.calculator.data.Operand
+import com.example.calculator.calculator.data.getDisplayValue
+import com.example.calculator.calculator.data.getNumericValue
+import com.example.calculator.calculator.domain.CalculatorEngine
+import com.example.calculator.calculator.domain.CalculatorError
 import java.util.Stack
 import kotlin.math.pow
+import kotlin.math.sqrt
 
 class CalculatorViewModel : ViewModel() {
     var state by mutableStateOf(CalculatorState())
         private set
+
+    private val calculatorEngine = CalculatorEngine()
 
     fun onAction(action: CalculatorAction) {
         when (action) {
@@ -29,27 +40,43 @@ class CalculatorViewModel : ViewModel() {
     private fun enterNumber(number: Int) {
         val current = state.currentInput
         var newCurrentInput: Operand = current
+        var clearInputTokens = false
+        var resetResult = false
 
-        if (current is Operand.Error || state.result != "0") {
+        if (current is Operand.Error) {
             newCurrentInput = Operand.Number(number.toString())
-            state = state.copy(inputTokens = emptyList(), result = "0")
-        } else if (current is Operand.Number) {
+            clearInputTokens = true
+            resetResult = true
+        }
+        else if (state.result != "0" && state.inputTokens.isEmpty() && current !is Operand.Number) { // Añadido check de current para evitar resetear al escribir un numero despues de resultado
+            newCurrentInput = Operand.Number(number.toString())
+            clearInputTokens = true
+            resetResult = true
+        }
+        else if (current is Operand.Number && current.value == "0" && state.inputTokens.isEmpty()) {
+            if (number == 0) return // Evitar "00"
+            newCurrentInput = Operand.Number(number.toString())
+            resetResult = true // Se resetea el resultado ya que estamos comenzando una nueva entrada.
+        }
+        else if (current is Operand.Number) {
             val currentValue = current.value
-            if (currentValue == "0" && number == 0) return // No hacer nada si se intenta agregar un 0 a "0"
-            if (currentValue == "0") {
-                newCurrentInput = Operand.Number(number.toString()) // Reemplazar el "0" inicial
-            } else {
-                newCurrentInput =
-                    Operand.Number(currentValue + number) // Concatenar el número al actual
-            }
-        } else if (current is Operand.Empty || current is Operand.Constant) {
-            newCurrentInput =
-                Operand.Number(number.toString()) // Si es Empty o Constant, al poner un número, se convierte en Number
+            if (currentValue.length >= 9 && !currentValue.contains(".")) return
+
+            newCurrentInput = Operand.Number(currentValue + number.toString())
+            resetResult = true // Se resetea el resultado ya que se está editando un número.
+        }
+        else if (current is Operand.Empty || current is Operand.Constant) {
+            newCurrentInput = Operand.Number(number.toString())
+            resetResult = true // Se resetea el resultado ya que se está iniciando una nueva entrada.
         }
 
-        state = state.copy(currentInput = newCurrentInput)
-
+        state = state.copy(
+            currentInput = newCurrentInput,
+            inputTokens = if (clearInputTokens) emptyList() else state.inputTokens,
+            result = if (resetResult) "0" else state.result
+        )
     }
+
 
     private fun enterDecimal() {
         val current = state.currentInput
@@ -147,116 +174,32 @@ class CalculatorViewModel : ViewModel() {
             return
         }
 
-        val rpnTokens = convertInfixToRpn(finalTokens)
+        try {
+            val rpnTokens = calculatorEngine.convertInfixToRpn(finalTokens)
+            val calculationResult = calculatorEngine.evaluateRpn(rpnTokens)
 
-        val calculationResult = evaluateRpn(rpnTokens)
+            val formattedResult = calculatorEngine.formatResult(calculationResult)
 
-        state = state.copy(
-            currentInput = Operand.Number(formatResult(calculationResult)), // El resultado se convierte en el nuevo input
-            inputTokens = emptyList(), // Limpiar la lista de tokens
-            result = formatResult(calculationResult) // Guardar el resultado para mostrar
-        )
-    }
-
-    private fun convertInfixToRpn(infixTokens: List<Any>): List<Any> {
-        val outputQueue = mutableListOf<Any>()
-        val operatorStack = Stack<CalculatorOperation>()
-
-        infixTokens.forEach { token ->
-            when (token) {
-                is Operand -> { // Es un número o una constante
-                    outputQueue.add(token)
-                }
-
-                is CalculatorOperation -> { // Es un operador
-                    while (operatorStack.isNotEmpty() && operatorStack.peek() is CalculatorOperation) {
-                        val topOp = operatorStack.peek()
-                        if (topOp.precedence > token.precedence || (topOp.precedence == token.precedence && token.isLeftAssociative)) {
-                            outputQueue.add(operatorStack.pop())
-                        } else {
-                            break
-                        }
-                    }
-                    operatorStack.push(token)
-                }
-            }
+            state = state.copy(
+                currentInput = Operand.Number(formattedResult),
+                inputTokens = emptyList(),
+                result = formattedResult
+            )
+        } catch (e: CalculatorError) {
+            state = state.copy(
+                currentInput = Operand.Error,
+                inputTokens = emptyList(),
+                result = "Error: ${e.message}"
+            )
+            return
+        } catch (e: Exception) {
+            state = state.copy(
+                currentInput = Operand.Error,
+                inputTokens = emptyList(),
+                result = "Error: ${e.message}"
+            )
+            return
         }
-
-        // Mover cualquier operador restante de la pila a la cola de salida
-        while (operatorStack.isNotEmpty()) {
-            outputQueue.add(operatorStack.pop())
-        }
-        return outputQueue
-    }
-
-    private fun evaluateRpn(rpnTokens: List<Any>): Double {
-        val operandStack = Stack<Double>()
-
-        rpnTokens.forEach { token ->
-            when (token) {
-                is Operand -> {
-                    val value = token.getNumericValue()
-                    if (value == null) {
-                        throw IllegalArgumentException("Invalid operand in RPN: $token")
-                    }
-                    operandStack.push(value)
-                }
-
-                is CalculatorOperation -> {
-                    // Manejo de operadores unarios
-                    if (token == CalculatorOperation.SquareRoot) {
-                        if (operandStack.isEmpty()) {
-                            throw IllegalArgumentException("Not enough operands for unary operation: ${token.symbol}")
-                        }
-                        val operand = operandStack.pop() // Solo saca UN operando
-                        if (operand < 0) {
-                            state = state.copy(result = "Error") // Actualiza el estado de error
-                            throw ArithmeticException("Square root of negative number")
-                        }
-                        operandStack.push(kotlin.math.sqrt(operand))
-                    } else {
-                        if (operandStack.size < 2) {
-                            throw IllegalArgumentException("Not enough operands for binary operation: ${token.symbol}")
-                        }
-                        val operand2 = operandStack.pop()
-                        val operand1 = operandStack.pop()
-                        val result = when (token) {
-                            is CalculatorOperation.Add -> operand1 + operand2
-                            is CalculatorOperation.Subtract -> operand1 - operand2
-                            is CalculatorOperation.Multiply -> operand1 * operand2
-                            is CalculatorOperation.Divide -> {
-                                if (operand2 == 0.0) {
-                                    state = state.copy(result = "Error")
-                                    throw ArithmeticException("Division by zero")
-                                }
-                                operand1 / operand2
-                            }
-
-                            is CalculatorOperation.Mod -> operand1 % operand2
-                            is CalculatorOperation.Power -> operand1.pow(operand2)
-                            is CalculatorOperation.SquareRoot -> {
-                                if (operand2 == 0.0) {
-                                    state = state.copy(result = "Error")
-                                    throw ArithmeticException("Root index cannot be zero")
-                                }
-                                if (operand1 < 0 && operand2 % 2 == 0.0) {
-                                    state = state.copy(result = "Error")
-                                    throw ArithmeticException("Even root of a negative number")
-                                }
-                                operand1.pow(1.0 / operand2)
-                            }
-
-                        }
-                        operandStack.push(result)
-                    }
-                }
-            }
-        }
-
-        if (operandStack.size != 1) {
-            throw IllegalArgumentException("Invalid RPN expression: $rpnTokens")
-        }
-        return operandStack.pop()
     }
 
     private fun updateDisplayExpression() {
@@ -312,7 +255,7 @@ class CalculatorViewModel : ViewModel() {
             is Operand.Constant -> {
                 val negativeValue = -current.value
                 state =
-                    state.copy(currentInput = Operand.Number(formatResult(negativeValue))) // Conviértelo en un número
+                    state.copy(currentInput = Operand.Number(calculatorEngine.formatResult(negativeValue))) // Conviértelo en un número
             }
 
             Operand.Empty -> {
@@ -326,29 +269,4 @@ class CalculatorViewModel : ViewModel() {
         updateDisplayExpression()
     }
 
-    private fun formatResult(value: Double): String {
-        return if (value % 1 == 0.0) {
-            value.toLong().toString()
-        } else {
-            val stringValue = value.toString()
-            if (stringValue.length > MAX_NUM_LENGTH + 1) {
-                val parts = stringValue.split(".")
-                if (parts.size > 1) {
-                    val integerPart = parts[0]
-                    val decimalPart = parts[1].take(
-                        MAX_NUM_LENGTH - integerPart.length - (if (integerPart.contains("-")) 1 else 0)
-                    )
-                    "$integerPart.$decimalPart"
-                } else {
-                    stringValue.take(MAX_NUM_LENGTH + 1)
-                }
-            } else {
-                stringValue
-            }
-        }
-    }
-
-    companion object {
-        private const val MAX_NUM_LENGTH = 9
-    }
 }
