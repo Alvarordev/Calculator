@@ -24,10 +24,6 @@ class CalculatorViewModel : ViewModel() {
         updateDisplayExpression()
     }
 
-    private fun clearAll() {
-        state = CalculatorState()
-    }
-
     private fun enterNumber(number: Int) {
         val current = state.currentInput
         var newCurrentInput: Operand = current
@@ -62,7 +58,7 @@ class CalculatorViewModel : ViewModel() {
         } else if (current is Operand.Number && !current.value.contains('.')) {
             newCurrentInput = Operand.Number(current.value + ".")
         } else if (current is Operand.Empty || current is Operand.Constant) {
-            newCurrentInput = Operand.Number("0.") // Si es Empty o Constant, al poner un decimal, se convierte en Number con "0."
+            newCurrentInput = Operand.Number("0.")
         }
 
         state = state.copy(currentInput = newCurrentInput)
@@ -72,11 +68,40 @@ class CalculatorViewModel : ViewModel() {
     private fun enterConstant(constant: Operand.Constant) {
         val newTokens = state.inputTokens.toMutableList()
 
-        if (state.currentInput !is Operand.Empty) {
-            newTokens.add(state.currentInput)
+        if (state.currentInput is Operand.Number && (state.currentInput as Operand.Number).value == "0" && newTokens.isEmpty()) {
+            // En este caso, no añadimos el "0" y simplemente seteamos la constante como currentInput
+            state = state.copy(currentInput = constant, inputTokens = emptyList(), result = "0")
+            return
         }
-        newTokens.add(constant)
-        state = state.copy(currentInput = Operand.Empty, inputTokens = newTokens)
+
+        else if (state.currentInput !is Operand.Empty && state.currentInput !is Operand.Error) {
+            if (newTokens.isEmpty() || newTokens.last() !is CalculatorOperation) {
+                // No hay tokens o el último token NO es una operación.
+                // Esto significa que la constante debe reemplazar el currentInput
+                // o ser el primer token.
+                state = state.copy(currentInput = constant, inputTokens = emptyList(), result = "0")
+                return
+            } else {
+                // Último token ES una operación (ej. "5 + ")
+                // Entonces añadimos el currentInput (si lo hay) y luego la constante
+                if (state.currentInput !is Operand.Empty) {
+                    newTokens.add(state.currentInput)
+                }
+                newTokens.add(constant)
+                state = state.copy(currentInput = Operand.Empty, inputTokens = newTokens)
+            }
+        }
+        else if (state.currentInput is Operand.Empty) {
+            if (newTokens.isNotEmpty() && newTokens.last() is CalculatorOperation) {
+                newTokens.add(constant)
+                state = state.copy(currentInput = Operand.Empty, inputTokens = newTokens)
+            } else {
+                state = state.copy(currentInput = constant, inputTokens = emptyList(), result = "0")
+            }
+        }
+        else if (state.currentInput is Operand.Error) {
+            state = state.copy(currentInput = constant, inputTokens = emptyList(), result = "0")
+        }
     }
 
     private fun enterOperation(operation: CalculatorOperation) {
@@ -100,9 +125,7 @@ class CalculatorViewModel : ViewModel() {
         )
     }
 
-    // --- Algoritmo Shunting-Yard y Evaluación ---
     private fun performCalculation() {
-        // 1. Finalizar el input actual si lo hay y añadirlo a los tokens
         val finalTokens = state.inputTokens.toMutableList()
         if (state.currentInput !is Operand.Empty && state.currentInput !is Operand.Error) {
             finalTokens.add(state.currentInput)
@@ -113,10 +136,8 @@ class CalculatorViewModel : ViewModel() {
             return
         }
 
-        // 2. Convertir a RPN (Notación Polaca Inversa) usando Shunting-Yard
         val rpnTokens = convertInfixToRpn(finalTokens)
 
-        // 3. Evaluar la expresión RPN
         val calculationResult = evaluateRpn(rpnTokens)
 
         state = state.copy(
@@ -144,9 +165,6 @@ class CalculatorViewModel : ViewModel() {
                     }
                     operatorStack.push(token)
                 }
-                // Si tuvieras paréntesis, los manejarías aquí:
-                // "(" -> push a la pila de operadores
-                // ")" -> pop operadores hasta encontrar "("
             }
         }
 
@@ -207,24 +225,18 @@ class CalculatorViewModel : ViewModel() {
                 when (token) {
                     is Operand -> append(token.getDisplayValue())
                     is CalculatorOperation -> append(token.symbol)
-                    // (Si tienes paréntesis, también los añadirías aquí)
                 }
-                append(" ") // Espacio para separar tokens visualmente
+                append("")
             }
             if (state.currentInput !is Operand.Empty) {
                 append(state.currentInput.getDisplayValue())
             }
-        }.trim() // Eliminar el espacio final
+        }.trim()
 
         state = state.copy(displayExpression = expressionString.ifBlank { "0" })
     }
 
-    // --- Otras funciones de tu ViewModel (adaptadas si es necesario) ---
     private fun performDeletion() {
-        // Esta función se vuelve más compleja. Necesita borrar del currentInput,
-        // o si currentInput está vacío, borrar el último token de inputTokens.
-        // Tendrías que pensar si borras el último operador, o el último número/constante.
-        // Por ahora, solo un placeholder:
         if (state.currentInput !is Operand.Empty && state.currentInput !is Operand.Error) {
             if (state.currentInput is Operand.Number && (state.currentInput as Operand.Number).value.length > 1) {
                 state = state.copy(currentInput = Operand.Number((state.currentInput as Operand.Number).value.dropLast(1)))
@@ -235,45 +247,42 @@ class CalculatorViewModel : ViewModel() {
             val lastToken = state.inputTokens.last()
             val newTokens = state.inputTokens.dropLast(1).toMutableList()
             if (lastToken is Operand) {
-                state = state.copy(currentInput = lastToken, inputTokens = newTokens) // Mover el token borrado a currentInput
-            } else { // Es un operador
+                state = state.copy(currentInput = lastToken, inputTokens = newTokens)
+            } else {
                 state = state.copy(inputTokens = newTokens)
             }
         } else {
-            state = CalculatorState() // Vaciar si no hay nada
+            state = CalculatorState()
         }
-        updateDisplayExpression() // Asegúrate de actualizar el display
+        updateDisplayExpression()
     }
 
     private fun toggleSign() {
-        // Adapta esta función para trabajar con 'currentInput'
         when (val current = state.currentInput) {
             is Operand.Number -> {
                 val newValue = if (current.value.startsWith("-")) current.value.removePrefix("-") else "-" + current.value
                 state = state.copy(currentInput = Operand.Number(newValue))
             }
             is Operand.Constant -> {
-                val negativeValue = -current.value // Calcula el valor negativo de la constante
+                val negativeValue = -current.value
                 state = state.copy(currentInput = Operand.Number(formatResult(negativeValue))) // Conviértelo en un número
             }
             Operand.Empty -> {
                 state = state.copy(currentInput = Operand.Number("-"))
             }
             Operand.Error -> {
-                // No hacer nada o limpiar
                 state = state.copy(currentInput = Operand.Number("-"))
             }
         }
         updateDisplayExpression()
     }
 
-    // El formatResult de antes (necesitarás el MAX_NUM_LENGTH)
     private fun formatResult(value: Double): String {
         return if (value % 1 == 0.0) {
             value.toLong().toString()
         } else {
             val stringValue = value.toString()
-            if (stringValue.length > MAX_NUM_LENGTH + 1) { // Ajusta el +1 según necesites el punto y el signo
+            if (stringValue.length > MAX_NUM_LENGTH + 1) {
                 val parts = stringValue.split(".")
                 if (parts.size > 1) {
                     val integerPart = parts[0]
