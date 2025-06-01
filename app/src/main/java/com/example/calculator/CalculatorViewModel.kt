@@ -4,6 +4,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
+import java.util.Stack
 
 class CalculatorViewModel : ViewModel() {
     var state by mutableStateOf(CalculatorState())
@@ -20,325 +21,259 @@ class CalculatorViewModel : ViewModel() {
             is CalculatorAction.ToggleSign -> toggleSign()
             is CalculatorAction.Constant -> enterConstant(action.constant)
         }
+        updateDisplayExpression()
     }
 
-    private fun enterConstant(constant: Operand.Constant) {
-        if (state.operation == null) {
-            // Reemplazar number1 con la constante
-            state = if (state.number1 is Operand.Error) {
-                CalculatorState(number1 = constant)
-            } else {
-                state.copy(number1 = constant)
-            }
-        } else {
-            // Reemplazar number2 con la constante
-            state = state.copy(number2 = constant)
-        }
-    }
-
-    private fun performDeletion() {
-        when {
-            // Si number2 no está vacío, borramos de number2
-            state.number2 !is Operand.Empty -> {
-                when (val current = state.number2) {
-                    is Operand.Number -> {
-                        if (current.value.length > 1) {
-                            state = state.copy(
-                                number2 = Operand.Number(current.value.dropLast(1))
-                            )
-                        } else {
-                            state = state.copy(number2 = Operand.Empty)
-                        }
-                    }
-                    is Operand.Constant -> {
-                        // Si es una constante, la eliminamos completamente
-                        state = state.copy(number2 = Operand.Empty)
-                    }
-                    else -> {
-                        state = state.copy(number2 = Operand.Empty)
-                    }
-                }
-            }
-
-            // Si hay operación pero number2 está vacío, eliminamos la operación
-            state.operation != null -> {
-                state = state.copy(operation = null)
-            }
-
-            // Si number1 no está vacío, borramos de number1
-            !state.number1.isEmpty() -> {
-                when (val current = state.number1) {
-                    is Operand.Number -> {
-                        if (current.value.length > 1) {
-                            state = state.copy(
-                                number1 = Operand.Number(current.value.dropLast(1))
-                            )
-                        } else {
-                            state = state.copy(number1 = Operand.Number("0"))
-                        }
-                    }
-                    is Operand.Constant -> {
-                        // Si es una constante, la reemplazamos con "0"
-                        state = state.copy(number1 = Operand.Number("0"))
-                    }
-                    else -> {
-                        state = state.copy(number1 = Operand.Number("0"))
-                    }
-                }
-            }
-        }
-
-        if (state.number1.isEmpty() && state.number2 is Operand.Empty && state.operation == null) {
-            state = state.copy(number1 = Operand.Number("0"))
-        }
-    }
-
-    private fun toggleSign() {
-        if (state.operation == null) {
-            // Trabajando con number1
-            when (val current = state.number1) {
-                is Operand.Number -> {
-                    when {
-                        current.value.isNotBlank() && current.value != "0" && current.value != "-" -> {
-                            val newValue = if (current.value.startsWith("-")) {
-                                current.value.removePrefix("-")
-                            } else {
-                                "-" + current.value
-                            }
-                            state = state.copy(number1 = Operand.Number(newValue))
-                        }
-                        current.value.isBlank() || current.value == "0" -> {
-                            state = state.copy(number1 = Operand.Number("-"))
-                        }
-                        current.value == "-" -> {
-                            state = state.copy(number1 = Operand.Number("0"))
-                        }
-                    }
-                }
-                is Operand.Constant -> {
-                    // Para constantes, crear el número negativo de su valor
-                    val negativeValue = -current.value
-                    state = state.copy(number1 = Operand.Number(formatResult(negativeValue)))
-                }
-                is Operand.Error -> {
-                    state = state.copy(number1 = Operand.Number("-"))
-                }
-                is Operand.Empty -> {
-                    state = state.copy(number1 = Operand.Number("-"))
-                }
-            }
-        } else {
-            // Trabajando con number2
-            when (val current = state.number2) {
-                is Operand.Number -> {
-                    when {
-                        current.value.isNotBlank() && current.value != "0" && current.value != "-" -> {
-                            val newValue = if (current.value.startsWith("-")) {
-                                current.value.removePrefix("-")
-                            } else {
-                                "-" + current.value
-                            }
-                            state = state.copy(number2 = Operand.Number(newValue))
-                        }
-                        current.value.isBlank() || current.value == "0" -> {
-                            state = state.copy(number2 = Operand.Number("-"))
-                        }
-                        current.value == "-" -> {
-                            state = state.copy(number2 = Operand.Number("0"))
-                        }
-                    }
-                }
-                is Operand.Constant -> {
-                    // Para constantes, crear el número negativo de su valor
-                    val negativeValue = -current.value
-                    state = state.copy(number2 = Operand.Number(formatResult(negativeValue)))
-                }
-                is Operand.Empty -> {
-                    state = state.copy(number2 = Operand.Number("-"))
-                }
-                is Operand.Error -> {
-                    state = state.copy(number2 = Operand.Number("-"))
-                }
-            }
-        }
-    }
-
-    private fun performCalculation() {
-        val number1 = state.number1.getNumericValue()
-        val number2 = state.number2.getNumericValue()
-
-        if (number1 == null || state.operation == null || number2 == null) {
-            return
-        }
-
-        val result = when (state.operation) {
-            is CalculatorOperation.Add -> number1 + number2
-            is CalculatorOperation.Subtract -> number1 - number2
-            is CalculatorOperation.Multiply -> number1 * number2
-            is CalculatorOperation.Divide -> {
-                if (number2 == 0.0) {
-                    state = state.copy(
-                        number1 = Operand.Error,
-                        number2 = Operand.Empty,
-                        operation = null,
-                        result = "Error"
-                    )
-                    return
-                }
-                number1 / number2
-            }
-            is CalculatorOperation.Mod -> number1 % number2
-            is CalculatorOperation.Root -> Math.pow(number1, 0.5)
-            is CalculatorOperation.Power -> Math.pow(number1, number2)
-            null -> return
-        }
-
-        state = state.copy(
-            number1 = Operand.Number(formatResult(result)),
-            number2 = Operand.Empty,
-            result = formatResult(result),
-            operation = null
-        )
-    }
-
-    private fun enterOperation(operation: CalculatorOperation) {
-        if (state.number1 is Operand.Error) return
-
-        // Si ya tenemos una operación y un segundo operando, calculamos primero
-        if (state.operation != null && state.number2 !is Operand.Empty) {
-            performCalculation()
-            state = state.copy(operation = operation)
-            return
-        }
-
-        // Cambiar operador si ya hay uno pero no hay segundo operando
-        if (state.operation != null && state.number2 is Operand.Empty) {
-            state = state.copy(operation = operation)
-            return
-        }
-
-        // Iniciar operación si tenemos un primer operando válido
-        if (!state.number1.isEmpty() && state.number1 !is Operand.Error) {
-            state = state.copy(operation = operation)
-        }
-    }
-
-    private fun enterDecimal() {
-        if (state.operation == null) {
-            // Trabajando con number1
-            when (val current = state.number1) {
-                is Operand.Number -> {
-                    if (current.value.contains('.')) return // Ya tiene decimal
-                    if (current.value.isBlank()) {
-                        state = state.copy(number1 = Operand.Number("0."))
-                    } else {
-                        state = state.copy(number1 = Operand.Number(current.value + "."))
-                    }
-                }
-                is Operand.Error -> {
-                    // Si había error, empezar con "0."
-                    state = state.copy(number1 = Operand.Number("0."))
-                }
-                is Operand.Empty -> {
-                    // Si estaba vacío, empezar con "0."
-                    state = state.copy(number1 = Operand.Number("0."))
-                }
-                is Operand.Constant -> {
-                    // Si había una constante, no podemos agregar decimal
-                    // Opción 1: No hacer nada (ignorar el decimal)
-                    return
-                    // Opción 2: Reemplazar la constante con "0."
-                    // state = state.copy(number1 = Operand.Number("0."))
-                }
-            }
-        } else {
-            // Trabajando con number2
-            when (val current = state.number2) {
-                is Operand.Number -> {
-                    if (current.value.contains('.')) return // Ya tiene decimal
-                    if (current.value.isBlank()) {
-                        state = state.copy(number2 = Operand.Number("0."))
-                    } else {
-                        state = state.copy(number2 = Operand.Number(current.value + "."))
-                    }
-                }
-                is Operand.Empty -> {
-                    // Si number2 estaba vacío, empezar con "0."
-                    state = state.copy(number2 = Operand.Number("0."))
-                }
-                is Operand.Error -> {
-                    // Si había error, empezar con "0."
-                    state = state.copy(number2 = Operand.Number("0."))
-                }
-                is Operand.Constant -> {
-                    // Si había una constante, no podemos agregar decimal
-                    // Opción 1: No hacer nada (ignorar el decimal)
-                    return
-                    // Opción 2: Reemplazar la constante con "0."
-                    // state = state.copy(number2 = Operand.Number("0."))
-                }
-            }
-        }
+    private fun clearAll() {
+        state = CalculatorState()
     }
 
     private fun enterNumber(number: Int) {
-        if (state.operation == null) {
-            when (val current = state.number1) {
-                is Operand.Number -> {
-                    if (current.value == "0" && number == 0) return
-                    if (current.value.length >= MAX_NUM_LENGTH && current.value != "0") return
+        val current = state.currentInput
+        var newCurrentInput: Operand = current
 
-                    val newValue = if (current.value == "0") {
-                        number.toString()
-                    } else {
-                        current.value + number
-                    }
-                    state = state.copy(number1 = Operand.Number(newValue))
-                }
-                is Operand.Error -> {
-                    state = CalculatorState(number1 = Operand.Number(number.toString()))
-                }
-                is Operand.Constant -> {
-                    // Si había una constante, la reemplazamos con el número
-                    state = state.copy(number1 = Operand.Number(number.toString()))
-                }
-                is Operand.Empty -> {
-                    state = state.copy(number1 = Operand.Number(number.toString()))
-                }
+        // Si hay un error o el resultado no es "0", reiniciar el currentInput
+        if (current is Operand.Error || state.result != "0") {
+            newCurrentInput = Operand.Number(number.toString())
+            state = state.copy(inputTokens = emptyList(), result = "0")
+        } else if (current is Operand.Number) {
+            val currentValue = current.value
+            if (currentValue == "0" && number == 0) return // No hacer nada si se intenta agregar un 0 a "0"
+            if (currentValue == "0") {
+                newCurrentInput = Operand.Number(number.toString()) // Reemplazar el "0" inicial
+            } else {
+                newCurrentInput = Operand.Number(currentValue + number) // Concatenar el número al actual
             }
-        } else {
-            when (val current = state.number2) {
-                is Operand.Number -> {
-                    if (current.value == "0" && number == 0) return
-                    if (current.value.length >= MAX_NUM_LENGTH) return
+        } else if (current is Operand.Empty || current is Operand.Constant) {
+            newCurrentInput = Operand.Number(number.toString()) // Si es Empty o Constant, al poner un número, se convierte en Number
+        }
 
-                    val newValue = if (current.value == "0") {
-                        number.toString()
-                    } else {
-                        current.value + number
+        state = state.copy(currentInput = newCurrentInput)
+
+    }
+
+    private fun enterDecimal() {
+        val current = state.currentInput
+        var newCurrentInput: Operand = current
+
+        if (current is Operand.Error || state.result != "0") {
+            newCurrentInput = Operand.Number("0.")
+            state = state.copy(inputTokens = emptyList(), result = "0")
+        } else if (current is Operand.Number && !current.value.contains('.')) {
+            newCurrentInput = Operand.Number(current.value + ".")
+        } else if (current is Operand.Empty || current is Operand.Constant) {
+            newCurrentInput = Operand.Number("0.") // Si es Empty o Constant, al poner un decimal, se convierte en Number con "0."
+        }
+
+        state = state.copy(currentInput = newCurrentInput)
+
+    }
+
+    private fun enterConstant(constant: Operand.Constant) {
+        val newTokens = state.inputTokens.toMutableList()
+
+        if (state.currentInput !is Operand.Empty) {
+            newTokens.add(state.currentInput)
+        }
+        newTokens.add(constant)
+        state = state.copy(currentInput = Operand.Empty, inputTokens = newTokens)
+    }
+
+    private fun enterOperation(operation: CalculatorOperation) {
+        val newTokens = state.inputTokens.toMutableList()
+
+        // Si currentInput no es Empty, agregarlo a los tokens
+        if (state.currentInput !is Operand.Empty && state.currentInput !is Operand.Error) {
+            newTokens.add(state.currentInput)
+        }
+
+        // Si el último token es una operación, reemplazarlo (ej. 5+ -> 5-)
+        if (newTokens.isNotEmpty() && newTokens.last() is CalculatorOperation) {
+            newTokens[newTokens.lastIndex] = operation
+        } else {
+            newTokens.add(operation)
+        }
+
+        state = state.copy(
+            inputTokens = newTokens,
+            currentInput = Operand.Empty
+        )
+    }
+
+    // --- Algoritmo Shunting-Yard y Evaluación ---
+    private fun performCalculation() {
+        // 1. Finalizar el input actual si lo hay y añadirlo a los tokens
+        val finalTokens = state.inputTokens.toMutableList()
+        if (state.currentInput !is Operand.Empty && state.currentInput !is Operand.Error) {
+            finalTokens.add(state.currentInput)
+        }
+
+        if (finalTokens.isEmpty()) {
+            state = state.copy(result = state.currentInput.getDisplayValue())
+            return
+        }
+
+        // 2. Convertir a RPN (Notación Polaca Inversa) usando Shunting-Yard
+        val rpnTokens = convertInfixToRpn(finalTokens)
+
+        // 3. Evaluar la expresión RPN
+        val calculationResult = evaluateRpn(rpnTokens)
+
+        state = state.copy(
+            currentInput = Operand.Number(formatResult(calculationResult)), // El resultado se convierte en el nuevo input
+            inputTokens = emptyList(), // Limpiar la lista de tokens
+            result = formatResult(calculationResult) // Guardar el resultado para mostrar
+        )
+    }
+
+    private fun convertInfixToRpn(infixTokens: List<Any>): List<Any> {
+        val outputQueue = mutableListOf<Any>()
+        val operatorStack = Stack<CalculatorOperation>()
+
+        infixTokens.forEach { token ->
+            when (token) {
+                is Operand -> { // Es un número o una constante
+                    outputQueue.add(token)
+                }
+                is CalculatorOperation -> { // Es un operador
+                    while (operatorStack.isNotEmpty() && operatorStack.peek() is CalculatorOperation &&
+                        ((token.isLeftAssociative && token.precedence <= operatorStack.peek().precedence) ||
+                                (!token.isLeftAssociative && token.precedence < operatorStack.peek().precedence))
+                    ) {
+                        outputQueue.add(operatorStack.pop())
                     }
-                    state = state.copy(number2 = Operand.Number(newValue))
+                    operatorStack.push(token)
                 }
-                is Operand.Empty -> {
-                    state = state.copy(number2 = Operand.Number(number.toString()))
+                // Si tuvieras paréntesis, los manejarías aquí:
+                // "(" -> push a la pila de operadores
+                // ")" -> pop operadores hasta encontrar "("
+            }
+        }
+
+        // Mover cualquier operador restante de la pila a la cola de salida
+        while (operatorStack.isNotEmpty()) {
+            outputQueue.add(operatorStack.pop())
+        }
+        return outputQueue
+    }
+
+    private fun evaluateRpn(rpnTokens: List<Any>): Double {
+        val operandStack = Stack<Double>()
+
+        rpnTokens.forEach { token ->
+            when (token) {
+                is Operand -> {
+                    val value = token.getNumericValue()
+                    if (value == null) {
+                        throw IllegalArgumentException("Invalid operand in RPN: $token")
+                    }
+                    operandStack.push(value)
                 }
-                is Operand.Constant -> {
-                    // Si había una constante, la reemplazamos con el número
-                    state = state.copy(number2 = Operand.Number(number.toString()))
-                }
-                is Operand.Error -> {
-                    state = state.copy(number2 = Operand.Number(number.toString()))
+                is CalculatorOperation -> {
+                    if (operandStack.size < 2) { // La mayoría son binarios
+                        throw IllegalArgumentException("Not enough operands for operation: ${token.symbol}")
+                    }
+                    val operand2 = operandStack.pop()
+                    val operand1 = operandStack.pop()
+                    val result = when (token) {
+                        is CalculatorOperation.Add -> operand1 + operand2
+                        is CalculatorOperation.Subtract -> operand1 - operand2
+                        is CalculatorOperation.Multiply -> operand1 * operand2
+                        is CalculatorOperation.Divide -> {
+                            if (operand2 == 0.0) {
+                                state = state.copy(result = "Error") // Actualiza el estado de error
+                                throw ArithmeticException("Division by zero")
+                            }
+                            operand1 / operand2
+                        }
+                        is CalculatorOperation.Mod -> operand1 % operand2
+                        is CalculatorOperation.Power -> Math.pow(operand1, operand2)
+                        is CalculatorOperation.Root -> Math.pow(operand1, 1.0 / operand2) // Asumiendo root(x, y) = x^(1/y)
+                    }
+                    operandStack.push(result)
                 }
             }
         }
+
+        if (operandStack.size != 1) {
+            throw IllegalArgumentException("Invalid RPN expression: $rpnTokens")
+        }
+        return operandStack.pop()
     }
 
+    private fun updateDisplayExpression() {
+        val expressionString = buildString {
+            state.inputTokens.forEach { token ->
+                when (token) {
+                    is Operand -> append(token.getDisplayValue())
+                    is CalculatorOperation -> append(token.symbol)
+                    // (Si tienes paréntesis, también los añadirías aquí)
+                }
+                append(" ") // Espacio para separar tokens visualmente
+            }
+            if (state.currentInput !is Operand.Empty) {
+                append(state.currentInput.getDisplayValue())
+            }
+        }.trim() // Eliminar el espacio final
+
+        state = state.copy(displayExpression = expressionString.ifBlank { "0" })
+    }
+
+    // --- Otras funciones de tu ViewModel (adaptadas si es necesario) ---
+    private fun performDeletion() {
+        // Esta función se vuelve más compleja. Necesita borrar del currentInput,
+        // o si currentInput está vacío, borrar el último token de inputTokens.
+        // Tendrías que pensar si borras el último operador, o el último número/constante.
+        // Por ahora, solo un placeholder:
+        if (state.currentInput !is Operand.Empty && state.currentInput !is Operand.Error) {
+            if (state.currentInput is Operand.Number && (state.currentInput as Operand.Number).value.length > 1) {
+                state = state.copy(currentInput = Operand.Number((state.currentInput as Operand.Number).value.dropLast(1)))
+            } else {
+                state = state.copy(currentInput = Operand.Empty)
+            }
+        } else if (state.inputTokens.isNotEmpty()) {
+            val lastToken = state.inputTokens.last()
+            val newTokens = state.inputTokens.dropLast(1).toMutableList()
+            if (lastToken is Operand) {
+                state = state.copy(currentInput = lastToken, inputTokens = newTokens) // Mover el token borrado a currentInput
+            } else { // Es un operador
+                state = state.copy(inputTokens = newTokens)
+            }
+        } else {
+            state = CalculatorState() // Vaciar si no hay nada
+        }
+        updateDisplayExpression() // Asegúrate de actualizar el display
+    }
+
+    private fun toggleSign() {
+        // Adapta esta función para trabajar con 'currentInput'
+        when (val current = state.currentInput) {
+            is Operand.Number -> {
+                val newValue = if (current.value.startsWith("-")) current.value.removePrefix("-") else "-" + current.value
+                state = state.copy(currentInput = Operand.Number(newValue))
+            }
+            is Operand.Constant -> {
+                val negativeValue = -current.value // Calcula el valor negativo de la constante
+                state = state.copy(currentInput = Operand.Number(formatResult(negativeValue))) // Conviértelo en un número
+            }
+            Operand.Empty -> {
+                state = state.copy(currentInput = Operand.Number("-"))
+            }
+            Operand.Error -> {
+                // No hacer nada o limpiar
+                state = state.copy(currentInput = Operand.Number("-"))
+            }
+        }
+        updateDisplayExpression()
+    }
+
+    // El formatResult de antes (necesitarás el MAX_NUM_LENGTH)
     private fun formatResult(value: Double): String {
         return if (value % 1 == 0.0) {
             value.toLong().toString()
         } else {
             val stringValue = value.toString()
-            if (stringValue.length > MAX_NUM_LENGTH + 1) {
+            if (stringValue.length > MAX_NUM_LENGTH + 1) { // Ajusta el +1 según necesites el punto y el signo
                 val parts = stringValue.split(".")
                 if (parts.size > 1) {
                     val integerPart = parts[0]

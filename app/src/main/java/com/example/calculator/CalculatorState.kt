@@ -8,10 +8,10 @@ sealed class Operand {
 }
 
 data class CalculatorState(
-    val number1: Operand = Operand.Number("0"),
-    val number2: Operand = Operand.Empty,
-    val operation: CalculatorOperation? = null,
+    val inputTokens: List<Any> = emptyList(),
+    val currentInput: Operand = Operand.Number("0"),
     val result: String = "",
+    val displayExpression: String = "0",
 )
 
 fun Operand.getNumericValue(): Double? = when (this) {

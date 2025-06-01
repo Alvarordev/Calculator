@@ -30,15 +30,7 @@ import com.example.calculator.ui.theme.SpecialButtonWhite
 fun Calculator(
     state: CalculatorState, onAction: (CalculatorAction) -> Unit
 ) {
-    val displayText = buildString {
-        append(state.number1.getDisplayValue())
-        state.operation?.let {
-            append(it.symbol)
-        }
-        if (state.number2 !is Operand.Empty) {
-            append(state.number2.getDisplayValue())
-        }
-    }
+    val currentExpression = state.displayExpression
 
     Column(
         modifier = Modifier
@@ -57,7 +49,7 @@ fun Calculator(
             verticalArrangement = Arrangement.Center
         ) {
             Text(
-                text = displayText,
+                text = currentExpression,
                 fontSize = 48.sp,
                 fontWeight = FontWeight.Normal,
                 color = Color.Black
@@ -148,16 +140,7 @@ fun Calculator(
                         }
 
                         is CalculatorButton.Minus -> {
-                            if ((state.operation == CalculatorOperation.Multiply ||
-                                        state.operation == CalculatorOperation.Divide ||
-                                        state.operation == CalculatorOperation.Mod) &&
-                                (state.number2.isEmpty() || state.number2.getDisplayValue() == "-")
-                            ) {
-                                onAction(CalculatorAction.ToggleSign)
-                            }
-                            else {
                                 onAction(CalculatorAction.Operation(CalculatorOperation.Subtract))
-                            }
                         }
 
                         is CalculatorButton.Multiply -> {
